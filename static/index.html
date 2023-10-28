@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=windows-1251">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Upload and SQL Query</title>
+</head>
+<body>
+    <h1>File Upload and SQL Query</h1>
+    <input type="file" id="fileInput" accept=".csv, .xlsx, .xls">
+    <button id="uploadButton">Upload File</button>
+    <br>
+    <div id="fileList"></div> <!-- Для отображения списка файлов -->
+    <br>
+    <h2>File Data:</h2>
+    <div id="fileData"></div>
+    <h2>Execute SQL Query:</h2>
+    <textarea id="sqlQuery" rows="4" cols="50"></textarea>
+    <button id="executeButton">Execute Query</button>
+    <h2>Query Result:</h2>
+    <div id="queryResult"></div> <!-- Для отображения результатов SQL-запроса -->
+
+    <select id="filterColumn"></select> <!-- Выпадающий список для выбора столбца для фильтрации -->
+    <button id="filterButton">Apply Filter</button>
+
+    <select id="sortColumn"></select> <!-- Выпадающий список для выбора столбца для сортировки -->
+    <select id="sortOrder">
+        <option value="asc">Ascending</option>
+        <option value="desc">Descending</option>
+    </select>
+    <button id="sortButton">Apply Sort</button>
+
+    <select id="aggregateColumn"></select> <!-- Выпадающий список для выбора столбца для агрегации -->
+    <button id="aggregateButton">Apply Aggregate</button>
+    <div id="aggregateResult"></div> <!-- Для отображения результата агрегации -->
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        // Определяем функцию uploadFile в глобальной области видимости
+        function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            axios.post('http://localhost:8080/upload', formData) // Используйте порт 8080
+                .then(response => {
+                    alert(response.data.message);
+                    updateFileList(); // Обновляем список файлов после успешной загрузки
+                })
+                .catch(error => {
+                    alert('Error uploading file: ' + error.message);
+                });
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            let selectedFile = '';
+            let csvColumns = []; // Здесь будем хранить названия столбцов CSV
+
+            document.getElementById('uploadButton').addEventListener('click', uploadFile);
+            document.getElementById('executeButton').addEventListener('click', executeQuery);
+            document.getElementById('filterButton').addEventListener('click', applyFilter);
+            document.getElementById('sortButton').addEventListener('click', applySort);
+            document.getElementById('aggregateButton').addEventListener('click', applyAggregate);
+
+            function uploadFile() {
+                const fileInput = document.getElementById('fileInput');
+                const formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+
+                axios.post('http://localhost:8080/upload', formData) // Используйте порт 8080
+                    .then(response => {
+                        alert(response.data.message);
+                        updateFileList(); // Обновляем список файлов после успешной загрузки
+                    })
+                    .catch(error => {
+                        alert('Error uploading file: ' + error.message);
+                    });
+            }
+
+            function updateFileList() {
+                axios.get('http://localhost:8080/get_uploaded_files') // Используйте порт 8080
+                    .then(response => {
+                        const fileList = document.getElementById('fileList');
+                        fileList.innerHTML = ''; // Очищаем список
+
+                        const files = response.data.files;
+                        files.forEach(file => {
+                            const button = document.createElement('button'); // Создаем кнопку для каждого файла
+                            button.textContent = file;
+                            button.addEventListener('click', () => getFileData(file)); // При нажатии кнопки загружаем данные файла
+                            fileList.appendChild(button);
+                        });
+                    })
+                    .catch(error => {
+                        alert('Error fetching uploaded files: ' + error.message);
+                    });
+            }
+
+            function getFileData(filename) {
+                selectedFile = filename;
+                axios.get(`http://localhost:8080/get_file_data/${filename}`)
+                    .then(response => {
+                        const fileData = document.getElementById('fileData');
+                        fileData.innerHTML = '';
+
+                        const data = response.data;
+                        if (data.length > 0) {
+                            const table = document.createElement('table');
+                            const headerRow = document.createElement('tr');
+
+                            // Генерируем названия столбцов на основе данных из CSV
+                            if (csvColumns.length === 0 && data[0]) {
+                                csvColumns = Object.keys(data[0]);
+                                // Создаем опции для выпадающих списков
+                                const filterColumnSelect = document.getElementById('filterColumn');
+                                const sortColumnSelect = document.getElementById('sortColumn');
+                                const aggregateColumnSelect = document.getElementById('aggregateColumn');
+
+                                csvColumns.forEach(column => {
+                                    const option = document.createElement('option');
+                                    option.value = column;
+                                    option.textContent = column;
+                                    filterColumnSelect.appendChild(option);
+                                    sortColumnSelect.appendChild(option.cloneNode(true));
+                                    aggregateColumnSelect.appendChild(option.cloneNode(true));
+                                });
+                            }
+
+                            csvColumns.forEach(column => {
+                                const th = document.createElement('th');
+                                th.textContent = column;
+                                headerRow.appendChild(th);
+                            });
+                            table.appendChild(headerRow);
+
+                            data.forEach(item => {
+                                const row = document.createElement('tr');
+                                csvColumns.forEach(column => {
+                                    const td = document.createElement('td');
+                                    const cellValue = item[column];
+                                    if (cellValue === undefined || cellValue === null || cellValue === '') {
+                                        td.textContent = 'NaN';
+                                    } else {
+                                        td.textContent = cellValue;
+                                    }
+                                    
+                                    row.appendChild(td);
+                                });
+                                table.appendChild(row);
+                            });
+
+                            fileData.appendChild(table);
+                        } else {
+                            fileData.textContent = 'No data found in the file.';
+                        }
+                    })
+                    .catch(error => {
+                        alert('Error fetching file data: ' + error.message);
+                    });
+            }
+
+            function executeQuery() {
+                const sqlQuery = document.getElementById('sqlQuery').value;
+
+                // Выполните SQL-запрос
+                axios.post('http://localhost:8080/execute_query', { sql_query: sqlQuery, filename: selectedFile })
+                    .then(response => {
+                        const queryResult = document.getElementById('queryResult');
+                        queryResult.innerHTML = ''; // Очищаем предыдущие результаты
+
+                        const data = response.data;
+                        if (data.length > 0) {
+                            const table = document.createElement('table');
+                            const headerRow = document.createElement('tr');
+
+                            csvColumns.forEach(column => {
+                                const th = document.createElement('th');
+                                th.textContent = column;
+                                headerRow.appendChild(th);
+                            });
+                            table.appendChild(headerRow);
+
+                            data.forEach(item => {
+                                const row = document.createElement('tr');
+                                csvColumns.forEach(column => {
+                                    const td = document.createElement('td');
+                                    td.textContent = item[column];
+                                    row.appendChild(td);
+                                });
+                                table.appendChild(row);
+                            });
+
+                            queryResult.appendChild(table);
+                        } else {
+                            queryResult.textContent = 'No data found in the result.';
+                        }
+                    })
+                    .catch(error => {
+                        alert('Error executing SQL query: ' + error.message);
+                    });
+            }
+
+            // Функция для применения фильтра к данным
+            function applyFilter() {
+                const filterColumn = document.getElementById('filterColumn').value;
+                const filterValue = prompt('Enter filter value:');
+                if (filterValue !== null) {
+                    const table = document.querySelector('#fileData table');
+                    const rows = table.querySelectorAll('tr');
+
+                    // Пройдемся по строкам таблицы, начиная с 1, чтобы пропустить заголовок
+                    for (let i = 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        const cells = row.querySelectorAll('td');
+                        const cellValue = cells[csvColumns.indexOf(filterColumn)].textContent;
+
+                        // Скрыть строку, если значение не соответствует фильтру
+                        if (cellValue.toString() !== filterValue.toString()) {
+                            row.style.display = 'none';
+                        } else {
+                            row.style.display = ''; // Показать строку
+                        }
+                    }
+                    
+                    // Обновляем таблицу с названиями колонок после фильтрации
+                    updateTableWithColumns();
+                }
+            }
+
+            // Функция для применения сортировки к данным
+            function applySort() {
+                const sortColumn = document.getElementById('sortColumn').value;
+                const sortOrder = document.getElementById('sortOrder').value;
+                const table = document.querySelector('#fileData table');
+                const rows = table.querySelectorAll('tr');
+
+                // Преобразуем строки в массив для сортировки
+                const rowsArray = Array.from(rows).slice(1); // Пропустить заголовок
+                rowsArray.sort((a, b) => {
+                    const aValue = a.querySelectorAll('td')[csvColumns.indexOf(sortColumn)].textContent;
+                    const bValue = b.querySelectorAll('td')[csvColumns.indexOf(sortColumn)].textContent;
+
+                    if (typeof aValue === 'string' && typeof bValue === 'string') {
+                        if (sortOrder === 'asc') {
+                            return aValue.localeCompare(bValue);
+                        } else {
+                            return bValue.localeCompare(aValue);
+                        }
+                    } else if (typeof aValue === 'number' && typeof bValue === 'number') {
+                        if (sortOrder === 'asc') {
+                            return aValue - bValue;
+                        } else {
+                            return bValue - aValue;
+                        }
+                    } else {
+                        // Если типы данных разные, не сортируем
+                        return 0;
+                    }
+                });
+
+                // Очистить таблицу
+                rows.forEach(row => {
+                    table.removeChild(row);
+                });
+
+                // Вставить отсортированные строки
+                rowsArray.forEach(row => {
+                    table.appendChild(row);
+                });
+
+                // Обновляем таблицу с названиями колонок после сортировки
+                updateTableWithColumns();
+            }
+
+            // Функция для применения агрегации к данным
+            function applyAggregate() {
+                const aggregateColumn = document.getElementById('aggregateColumn').value;
+                const table = document.querySelector('#fileData table');
+                const rows = table.querySelectorAll('tr');
+
+                // Преобразуем строки в массив для агрегации
+                const values = [];
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i];
+                    const cellValue = row.querySelectorAll('td')[csvColumns.indexOf(aggregateColumn)].textContent;
+                    values.push(parseFloat(cellValue) || 0); // Преобразуем в число или 0, если не удалось
+                }
+
+                // Вычислить агрегацию (например, сумму)
+                const aggregateValue = values.reduce((sum, value) => sum + value, 0);
+
+                // Вывести результат агрегации
+                const aggregateResult = document.getElementById('aggregateResult');
+                aggregateResult.textContent = `Aggregate result for ${aggregateColumn}: ${aggregateValue}`;
+            }
+
+            // Функция для обновления таблицы с названиями колонок
+            function updateTableWithColumns() {
+                const table = document.querySelector('#fileData table');
+                const headerRow = document.createElement('tr');
+
+                csvColumns.forEach(column => {
+                    const th = document.createElement('th');
+                    th.textContent = column;
+                    headerRow.appendChild(th);
+                });
+
+                const existingHeaderRow = table.querySelector('tr:first-child');
+                if (existingHeaderRow) {
+                    table.replaceChild(headerRow, existingHeaderRow);
+                } else {
+                    table.insertBefore(headerRow, table.firstChild);
+                }
+            }
+
+            updateFileList(); // Обновляем список файлов при загрузке страницы
+        });
+    </script>
+</body>
+</html>
